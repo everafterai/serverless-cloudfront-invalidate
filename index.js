@@ -98,7 +98,10 @@ class CloudfrontInvalidate {
 			let cloudfrontInvalidate = element;
 			let reference = randomstring.generate(16);
 			let distributionId = cloudfrontInvalidate.distributionId;
-			const containsOriginArray = [].concat(cloudfrontInvalidate.containsOrigin);
+			const containsOriginArray =
+			  typeof cloudfrontInvalidate.containsOrigin === 'string'
+			    ? cloudfrontInvalidate.containsOrigin.split(',')
+			    : [];
 			let stage = cloudfrontInvalidate.stage;
 
 			if (stage !== undefined && stage !== `${this.serverless.service.provider.stage}`) {
