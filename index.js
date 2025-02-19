@@ -60,6 +60,11 @@ class CloudfrontInvalidate {
 		cli.consoleLog(`CloudfrontInvalidate: ${chalk.yellow('ca cert handling enabled')}`);
 	}
 
+	// Add a delay helper method
+	delay(ms) {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
 	createInvalidation(distributionId, reference, cloudfrontInvalidate) {
 		const cli = this.serverless.cli;
 		const cloudfrontInvalidateItems = cloudfrontInvalidate.items;
@@ -86,7 +91,8 @@ class CloudfrontInvalidate {
 		);
 	}
 
-	invalidateElements(elements) {
+	// Modified invalidateElements to add a 300ms delay between invalidation calls
+	async invalidateElements(elements) {
 		const cli = this.serverless.cli;
 
 		if (this.options.noDeploy) {
@@ -94,91 +100,88 @@ class CloudfrontInvalidate {
 			return;
 		}
 
-		const invalidationPromises = elements.map((element) => {
+		for (const element of elements) {
 			let cloudfrontInvalidate = element;
 			let reference = randomstring.generate(16);
 			let distributionId = cloudfrontInvalidate.distributionId;
 			const containsOriginArray =
-			  typeof cloudfrontInvalidate.containsOrigin === 'string'
-			    ? cloudfrontInvalidate.containsOrigin.split(',')
-			    : [];
+				typeof cloudfrontInvalidate.containsOrigin === 'string'
+					? cloudfrontInvalidate.containsOrigin.split(',')
+					: [];
 			let stage = cloudfrontInvalidate.stage;
 
 			if (stage !== undefined && stage !== `${this.serverless.service.provider.stage}`) {
-				return;
+				continue;
 			}
 
 			if (distributionId) {
 				cli.consoleLog(`DistributionId: ${chalk.yellow(distributionId)}`);
-
-				return this.createInvalidation(distributionId, reference, cloudfrontInvalidate);
+				try {
+					await this.createInvalidation(distributionId, reference, cloudfrontInvalidate);
+				} catch (e) {
+					// error is logged in createInvalidation
+				}
+				await this.delay(300);
+				continue;
 			}
+
 			if (containsOriginArray.length > 0) {
 				cli.consoleLog(`containsOriginArray: ${chalk.yellow(containsOriginArray)}`);
-				this.aws
-					.request('CloudFront', 'listDistributions')
-					.then((data) => {
-						const distributions = data.DistributionList.Items;
-						distributions.forEach((distribution) => {
-							const foundDistribution = distribution.Origins.Items.find((origin) => {
-								return containsOriginArray.includes(origin.DomainName);
-							});
-
-							if (foundDistribution) {
-								cli.consoleLog(
-									`Going to invalidate distributionId: ${chalk.yellow(
-										distribution.Id
-									)}`
-								);
-								return this.createInvalidation(
-									distribution.Id,
-									reference,
-									cloudfrontInvalidate
-								);
-							}
-						});
-					})
-					.catch((err) => {
-						cli.consoleLog(JSON.stringify(err));
-					});
+				try {
+					const data = await this.aws.request('CloudFront', 'listDistributions');
+					const distributions = data.DistributionList.Items;
+					for (const distribution of distributions) {
+						const foundDistribution = distribution.Origins.Items.find((origin) =>
+							containsOriginArray.includes(origin.DomainName)
+						);
+						if (foundDistribution) {
+							cli.consoleLog(
+								`Going to invalidate distributionId: ${chalk.yellow(distribution.Id)}`
+							);
+							await this.createInvalidation(distribution.Id, reference, cloudfrontInvalidate);
+							await this.delay(300);
+						}
+					}
+				} catch (err) {
+					cli.consoleLog(JSON.stringify(err));
+				}
+				continue;
 			}
 
 			if (!cloudfrontInvalidate.distributionIdKey) {
 				cli.consoleLog('distributionId, containsOrigin or distributionIdKey is required');
-				return;
+				continue;
 			}
 
 			cli.consoleLog(
 				`DistributionIdKey: ${chalk.yellow(cloudfrontInvalidate.distributionIdKey)}`
 			);
 
-			// get the id from the output of stack.
 			const stackName = this.serverless.getProvider('aws').naming.getStackName();
 
-			return this.aws
-				.request('CloudFormation', 'describeStacks', { StackName: stackName })
-				.then((result) => {
-					if (result) {
-						const outputs = result.Stacks[0].Outputs;
-						outputs.forEach((output) => {
-							if (output.OutputKey === cloudfrontInvalidate.distributionIdKey) {
-								distributionId = output.OutputValue;
-							}
-						});
-					}
-				})
-				.then(() =>
-					this.createInvalidation(distributionId, reference, cloudfrontInvalidate)
-				)
-				.catch(() => {
-					cli.consoleLog(
-						'Failed to get DistributionId from stack output. Please check your serverless template.'
-					);
+			try {
+				const result = await this.aws.request('CloudFormation', 'describeStacks', {
+					StackName: stackName,
 				});
-		});
-
-		return Promise.all(invalidationPromises);
+				if (result) {
+					const outputs = result.Stacks[0].Outputs;
+					for (const output of outputs) {
+						if (output.OutputKey === cloudfrontInvalidate.distributionIdKey) {
+							distributionId = output.OutputValue;
+							break;
+						}
+					}
+				}
+				await this.createInvalidation(distributionId, reference, cloudfrontInvalidate);
+				await this.delay(300);
+			} catch (e) {
+				cli.consoleLog(
+					'Failed to get DistributionId from stack output. Please check your serverless template.'
+				);
+			}
+		}
 	}
+
 
 	afterDeploy() {
 		const elementsToInvalidate = this.serverless.service.custom.cloudfrontInvalidate.filter(
