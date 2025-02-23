@@ -91,7 +91,7 @@ class CloudfrontInvalidate {
 		);
 	}
 
-	// Modified invalidateElements to add a 300ms delay between invalidation calls
+	// Modified invalidateElements to add a 1000ms delay between invalidation calls
 	async invalidateElements(elements) {
 		const cli = this.serverless.cli;
 
@@ -121,7 +121,7 @@ class CloudfrontInvalidate {
 				} catch (e) {
 					// error is logged in createInvalidation
 				}
-				await this.delay(300);
+				await this.delay(1000);
 				continue;
 			}
 
@@ -139,7 +139,7 @@ class CloudfrontInvalidate {
 								`Going to invalidate distributionId: ${chalk.yellow(distribution.Id)}`
 							);
 							await this.createInvalidation(distribution.Id, reference, cloudfrontInvalidate);
-							await this.delay(300);
+							await this.delay(1000);
 						}
 					}
 				} catch (err) {
@@ -173,7 +173,7 @@ class CloudfrontInvalidate {
 					}
 				}
 				await this.createInvalidation(distributionId, reference, cloudfrontInvalidate);
-				await this.delay(300);
+				await this.delay(1000);
 			} catch (e) {
 				cli.consoleLog(
 					'Failed to get DistributionId from stack output. Please check your serverless template.'
