@@ -61,11 +61,21 @@ class CloudfrontInvalidate {
 	}
 
 	// Add a delay helper method
+	/**
+	 * Creates a Promise that resolves after a specified delay
+	 * @param {number} ms - The delay duration in milliseconds
+	 * @returns {Promise<void>} A promise that resolves after the delay
+	 * @throws {TypeError} If ms is not a positive number
+	 */
 	delay(ms) {
+		// Validate input
+		if (!Number.isFinite(ms) || ms <= 0) {
+			throw new TypeError('Delay must be a positive number');
+		}
 		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
-	createInvalidation(distributionId, reference, cloudfrontInvalidate) {
+	async createInvalidation(distributionId, reference, cloudfrontInvalidate) {
 		const cli = this.serverless.cli;
 		const cloudfrontInvalidateItems = cloudfrontInvalidate.items;
 
@@ -79,16 +89,14 @@ class CloudfrontInvalidate {
 				},
 			},
 		};
-		return this.aws.request('CloudFront', 'createInvalidation', params).then(
-			() => {
-				cli.consoleLog(`CloudfrontInvalidate: ${chalk.yellow('Invalidation started')}`);
-			},
-			(err) => {
-				cli.consoleLog(JSON.stringify(err));
-				cli.consoleLog(`CloudfrontInvalidate: ${chalk.yellow('Invalidation failed')}`);
-				throw err;
-			}
-		);
+		try {
+			await this.aws.request('CloudFront', 'createInvalidation', params);
+			cli.consoleLog(`CloudfrontInvalidate: ${chalk.yellow('Invalidation started')}`);
+		} catch (err) {
+			cli.consoleLog(JSON.stringify(err));
+			cli.consoleLog(`CloudfrontInvalidate: ${chalk.yellow('Invalidation failed')}`);
+			throw err;
+		}
 	}
 
 	// Modified invalidateElements to add a 1000ms delay between invalidation calls
@@ -139,7 +147,10 @@ class CloudfrontInvalidate {
 								`Going to invalidate distributionId: ${chalk.yellow(distribution.Id)}`
 							);
 							await this.createInvalidation(distribution.Id, reference, cloudfrontInvalidate);
+							cli.consoleLog(`Starting delay of 1000ms for distribution: ${chalk.yellow(distribution.Id)}`);
 							await this.delay(1000);
+							cli.consoleLog(`Ended delay of 1000ms for distribution: ${chalk.yellow(distribution.Id)}`);
+
 						}
 					}
 				} catch (err) {
